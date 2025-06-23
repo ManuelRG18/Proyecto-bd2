@@ -19,11 +19,12 @@ Este proyecto es el frontend de la aplicación, construido con React, Vite y Typ
 1. Clona el repositorio (o descarga el proyecto):
 
    ```bash
-   git clone https://github.com/usuario/repositorio.git
-   cd repositorio
+   git clone https://github.com/ManuelRG18/Proyecto-bd2/tree/front_react
+   cd front_react
 Instala las dependencias:
 
-npm install
+      npm install
+
 Instala axios (si no está incluido en package.json):
 
 npm install axios
