@@ -2,109 +2,143 @@ import { useState, useEffect } from "react"
 import MapView from "./components/map-view"
 import "./app.css"
 
-// Definir la estructura del grafo de zonas
-const GRAFO_ZONAS = {
-  Centro: ["Norte", "Sur", "Este", "Oeste", "Plaza Mayor", "Universidad"],
-  Norte: ["Centro", "Este", "Aeropuerto"],
-  Sur: ["Centro", "Universidad", "Puerto", "Aeropuerto"],
-  Este: ["Centro", "Norte", "Hospital", "Aeropuerto"],
-  Oeste: ["Centro", "Plaza Mayor"],
-  "Plaza Mayor": ["Centro", "Oeste", "Universidad"],
-  Universidad: ["Centro", "Plaza Mayor", "Sur"],
-  Hospital: ["Este", "Aeropuerto"],
-  Aeropuerto: ["Norte", "Sur", "Este", "Hospital"],
-  Puerto: ["Sur"],
+interface Zona {
+  nombre: string
+  estado: string
+  tipo_zona: string
 }
 
-// Algoritmo de Dijkstra simplificado para encontrar la ruta más corta
-const encontrarRutaOptima = (origen: string, destino: string): { ruta: string[]; tiempo: number } => {
-  if (origen === destino) return { ruta: [origen], tiempo: 0 }
-
-  const distancias: { [key: string]: number } = {}
-  const anteriores: { [key: string]: string | null } = {}
-  const visitados = new Set<string>()
-  const cola = new Set<string>()
-
-  // Inicializar distancias
-  Object.keys(GRAFO_ZONAS).forEach((zona) => {
-    distancias[zona] = zona === origen ? 0 : Number.POSITIVE_INFINITY
-    anteriores[zona] = null
-    cola.add(zona)
-  })
-
-  while (cola.size > 0) {
-    // Encontrar el nodo con menor distancia
-    let nodoActual = ""
-    let menorDistancia = Number.POSITIVE_INFINITY
-
-    for (const nodo of cola) {
-      if (distancias[nodo] < menorDistancia) {
-        menorDistancia = distancias[nodo]
-        nodoActual = nodo
-      }
-    }
-
-    if (nodoActual === destino) break
-
-    cola.delete(nodoActual)
-    visitados.add(nodoActual)
-
-    // Actualizar distancias de vecinos
-    const vecinos = GRAFO_ZONAS[nodoActual as keyof typeof GRAFO_ZONAS] || []
-    vecinos.forEach((vecino) => {
-      if (!visitados.has(vecino)) {
-        const nuevaDistancia = distancias[nodoActual] + 1 // Peso uniforme de 1
-        if (nuevaDistancia < distancias[vecino]) {
-          distancias[vecino] = nuevaDistancia
-          anteriores[vecino] = nodoActual
-        }
-      }
-    })
-  }
-
-  // Reconstruir la ruta
-  const ruta: string[] = []
-  let actual: string | null = destino
-
-  while (actual !== null) {
-    ruta.unshift(actual)
-    actual = anteriores[actual]
-  }
-
-  // Si no hay conexión, devolver ruta vacía
-  if (ruta[0] !== origen) {
-    return { ruta: [], tiempo: 0 }
-  }
-
-  const tiempo = (ruta.length - 1) * 5 + Math.floor(Math.random() * 10) // 5 min base + variación
-  return { ruta, tiempo }
+interface Conexion {
+  desde: string
+  hasta: string
+  tiempo_minutos: number
+  trafico_actual: string
+  distancia_km: number
 }
 
-function App() {
-  const [zonas, setZonas] = useState<string[]>([])
+export default function DeliveryApp() {
+  const [zonas, setZonas] = useState<Zona[]>([])
+  const [conexiones, setConexiones] = useState<Conexion[]>([])
   const [origen, setOrigen] = useState<string>("")
   const [destino, setDestino] = useState<string>("")
   const [ruta, setRuta] = useState<string[]>([])
   const [tiempoTotal, setTiempoTotal] = useState<number | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
   const [tipoVista, setTipoVista] = useState<"grafo" | "calles">("grafo")
+  const [estadoFiltro, setEstadoFiltro] = useState<string>("todos")
 
+  // Estados disponibles
+  const estados = ["Distrito Capital", "Miranda", "Zulia", "Carabobo", "Lara"]
+
+  // Obtener zonas desde el backend
   useEffect(() => {
-    const zonasDisponibles = Object.keys(GRAFO_ZONAS)
-    setZonas(zonasDisponibles)
+    const fetchZonas = async () => {
+      try {
+        const response = await fetch("http://localhost:5000/zonas-completas")
+        const data = await response.json()
+        setZonas(data)
+      } catch (err) {
+        console.error("Error cargando zonas:", err)
+        // Datos de fallback con estados
+        const zonasDefault: Zona[] = [
+          // Distrito Capital
+          { nombre: "Altamira", estado: "Distrito Capital", tipo_zona: "comercial" },
+          { nombre: "Chacao", estado: "Distrito Capital", tipo_zona: "residencial" },
+          { nombre: "La Candelaria", estado: "Distrito Capital", tipo_zona: "residencial" },
+          { nombre: "Catia", estado: "Distrito Capital", tipo_zona: "residencial" },
+          { nombre: "El Paraíso", estado: "Distrito Capital", tipo_zona: "residencial" },
+          { nombre: "La Vega", estado: "Distrito Capital", tipo_zona: "residencial" },
+          { nombre: "El Valle", estado: "Distrito Capital", tipo_zona: "residencial" },
+          { nombre: "San Bernardino", estado: "Distrito Capital", tipo_zona: "residencial" },
+          { nombre: "Sabana Grande", estado: "Distrito Capital", tipo_zona: "residencial" },
+          { nombre: "Petare", estado: "Distrito Capital", tipo_zona: "residencial" },
+
+          // Miranda
+          { nombre: "Los Teques", estado: "Miranda", tipo_zona: "residencial" },
+          { nombre: "Guarenas", estado: "Miranda", tipo_zona: "residencial" },
+          { nombre: "Guatire", estado: "Miranda", tipo_zona: "residencial" },
+          { nombre: "Baruta", estado: "Miranda", tipo_zona: "residencial" },
+          { nombre: "El Hatillo", estado: "Miranda", tipo_zona: "residencial" },
+          { nombre: "San Antonio de Los Altos", estado: "Miranda", tipo_zona: "residencial" },
+          { nombre: "Ocumare del Tuy", estado: "Miranda", tipo_zona: "residencial" },
+          { nombre: "Charallave", estado: "Miranda", tipo_zona: "residencial" },
+          { nombre: "Santa Teresa del Tuy", estado: "Miranda", tipo_zona: "residencial" },
+          { nombre: "Higuerote", estado: "Miranda", tipo_zona: "residencial" },
+
+          // Zulia
+          { nombre: "Maracaibo Centro", estado: "Zulia", tipo_zona: "comercial" },
+          { nombre: "San Francisco", estado: "Zulia", tipo_zona: "residencial" },
+          { nombre: "La Limpia", estado: "Zulia", tipo_zona: "residencial" },
+          { nombre: "El Milagro", estado: "Zulia", tipo_zona: "residencial" },
+          { nombre: "Sabaneta", estado: "Zulia", tipo_zona: "residencial" },
+          { nombre: "Pomona", estado: "Zulia", tipo_zona: "residencial" },
+          { nombre: "Circunvalación 2", estado: "Zulia", tipo_zona: "residencial" },
+          { nombre: "Ciudad Ojeda", estado: "Zulia", tipo_zona: "residencial" },
+          { nombre: "La Lago", estado: "Zulia", tipo_zona: "residencial" },
+          { nombre: "Bella Vista", estado: "Zulia", tipo_zona: "residencial" },
+
+          // Carabobo
+          { nombre: "Valencia Centro", estado: "Carabobo", tipo_zona: "comercial" },
+          { nombre: "El Trigal", estado: "Carabobo", tipo_zona: "residencial" },
+          { nombre: "Naguanagua", estado: "Carabobo", tipo_zona: "residencial" },
+          { nombre: "Flor Amarillo", estado: "Carabobo", tipo_zona: "residencial" },
+          { nombre: "San Diego", estado: "Carabobo", tipo_zona: "residencial" },
+          { nombre: "Los Guayos", estado: "Carabobo", tipo_zona: "residencial" },
+          { nombre: "La Isabelica", estado: "Carabobo", tipo_zona: "residencial" },
+          { nombre: "Parque Valencia", estado: "Carabobo", tipo_zona: "residencial" },
+          { nombre: "La Quizanda", estado: "Carabobo", tipo_zona: "residencial" },
+          { nombre: "Tocuyito", estado: "Carabobo", tipo_zona: "residencial" },
+
+          // Lara
+          { nombre: "Barquisimeto Centro", estado: "Lara", tipo_zona: "comercial" },
+          { nombre: "Cabudare", estado: "Lara", tipo_zona: "residencial" },
+          { nombre: "Santa Rosa", estado: "Lara", tipo_zona: "residencial" },
+          { nombre: "El Ujano", estado: "Lara", tipo_zona: "residencial" },
+          { nombre: "Pueblo Nuevo", estado: "Lara", tipo_zona: "residencial" },
+          { nombre: "La Carucieña", estado: "Lara", tipo_zona: "residencial" },
+          { nombre: "La Hacienda", estado: "Lara", tipo_zona: "residencial" },
+          { nombre: "Tamaca", estado: "Lara", tipo_zona: "residencial" },
+          { nombre: "Las Trinitarias", estado: "Lara", tipo_zona: "residencial" },
+          { nombre: "Macuto", estado: "Lara", tipo_zona: "residencial" },
+        ]
+        setZonas(zonasDefault)
+      }
+    }
+
+    const fetchConexiones = async () => {
+      try {
+        const response = await fetch("http://localhost:5000/conexiones")
+        const data = await response.json()
+        setConexiones(data)
+      } catch (err) {
+        console.error("Error cargando conexiones:", err)
+      }
+    }
+
+    fetchZonas()
+    fetchConexiones()
   }, [])
+
+  // Filtrar zonas según el estado seleccionado
+  const zonasFiltradas = estadoFiltro === "todos" ? zonas : zonas.filter((zona) => zona.estado === estadoFiltro)
 
   const buscarRuta = async () => {
     if (origen && destino && origen !== destino) {
       setLoading(true)
-
-      // Simular tiempo de cálculo
-      setTimeout(() => {
-        const resultado = encontrarRutaOptima(origen, destino)
-        setRuta(resultado.ruta)
-        setTiempoTotal(resultado.tiempo)
+      try {
+        const res = await fetch(
+          `http://localhost:5000/ruta?origen=${encodeURIComponent(origen)}&destino=${encodeURIComponent(destino)}`,
+        )
+        const data = await res.json()
+        setRuta(data.ruta || [])
+        setTiempoTotal(data.tiempo || 0)
+      } catch (err) {
+        console.error("Error buscando ruta:", err)
+        setRuta([])
+        setTiempoTotal(0)
+      } finally {
         setLoading(false)
-      }, 800)
+      }
     }
   }
 
@@ -119,30 +153,55 @@ function App() {
     <div className="app-container">
       <header className="header">
         <h1>🛵 Sistema de Rutas de Delivery</h1>
-        <p className="subtitle">Optimización de Red de Entrega con Algoritmo de Dijkstra</p>
+        <p className="subtitle">Optimización de Red de Entrega con Neo4j</p>
       </header>
 
       <div className="controles-superiores">
+        {/* Filtro por Estado */}
+        <div className="filtro-estados">
+          <label className="filtro-label">🗺️ Filtrar por Estado:</label>
+          <div className="estado-buttons">
+            <button
+              onClick={() => setEstadoFiltro("todos")}
+              className={`estado-btn ${estadoFiltro === "todos" ? "active" : ""}`}
+            >
+              Todos los Estados ({zonas.length})
+            </button>
+            {estados.map((estado) => {
+              const count = zonas.filter((z) => z.estado === estado).length
+              return (
+                <button
+                  key={estado}
+                  onClick={() => setEstadoFiltro(estado)}
+                  className={`estado-btn ${estadoFiltro === estado ? "active" : ""}`}
+                >
+                  {estado} ({count})
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         <div className="control-group">
           <label htmlFor="origen">
             📍 Origen:
             <select id="origen" value={origen} onChange={(e) => setOrigen(e.target.value)} className="select-zona">
               <option value="">Seleccionar zona de origen</option>
-              {zonas.map((z, i) => (
-                <option key={i} value={z}>
-                  {z}
+              {zonasFiltradas.map((zona, i) => (
+                <option key={i} value={zona.nombre}>
+                  {zona.nombre} ({zona.estado})
                 </option>
               ))}
             </select>
           </label>
 
           <label htmlFor="destino">
-            🎯 Destino:
+            🚩 Destino:
             <select id="destino" value={destino} onChange={(e) => setDestino(e.target.value)} className="select-zona">
               <option value="">Seleccionar zona de destino</option>
-              {zonas.map((z, i) => (
-                <option key={i} value={z}>
-                  {z}
+              {zonasFiltradas.map((zona, i) => (
+                <option key={i} value={zona.nombre}>
+                  {zona.nombre} ({zona.estado})
                 </option>
               ))}
             </select>
@@ -155,11 +214,11 @@ function App() {
             disabled={!origen || !destino || origen === destino || loading}
             className="btn-primary"
           >
-            {loading ? "🔄 Calculando..." : "🔍 Buscar Ruta Óptima"}
+            {loading ? "🔄 Calculando..." : "🔍︎ Buscar Ruta Óptima"}
           </button>
 
           <button onClick={limpiarRuta} className="btn-secondary" disabled={loading}>
-            🗑️ Limpiar
+            🗑 Limpiar
           </button>
         </div>
 
@@ -184,13 +243,14 @@ function App() {
 
       <div className="mapa-container">
         <MapView
-          zonas={zonas}
+          zonas={zonasFiltradas}
+          conexiones={conexiones}
           origen={origen}
           destino={destino}
           ruta={ruta}
           loading={loading}
           tipoVista={tipoVista}
-          grafoZonas={GRAFO_ZONAS}
+          estadoFiltro={estadoFiltro}
         />
       </div>
 
@@ -207,7 +267,7 @@ function App() {
           </div>
           <div className="ruta-info">
             <span className="tiempo-total">
-              🕒 Tiempo estimado: <strong>{tiempoTotal} minutos</strong>
+              🕒 Tiempo estimado: <strong>{tiempoTotal?.toFixed(1)} minutos</strong>
             </span>
             <span className="distancia-info">📏 {ruta.length - 1} conexiones</span>
           </div>
@@ -224,5 +284,3 @@ function App() {
     </div>
   )
 }
-
-export default App

@@ -57,6 +57,52 @@
   background: #6b7280;
 }
 
+.map-controls {
+  background: #f3f4f6;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.control-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.control-btn.primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.control-btn.primary:hover {
+  background: #2563eb;
+}
+
+.control-btn.secondary {
+  background: #6b7280;
+  color: white;
+}
+
+.control-btn.secondary:hover {
+  background: #4b5563;
+}
+
+.zoom-info {
+  padding: 0.5rem 1rem;
+  background: #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #374151;
+}
+
 .canvas-container {
   display: flex;
   justify-content: center;
@@ -70,6 +116,7 @@
   background: white;
   max-width: 100%;
   height: auto;
+  cursor: move;
 }
 
 .map-info {
@@ -92,6 +139,11 @@
 
   .map-legend {
     justify-content: center;
+  }
+
+  .map-controls {
+    flex-direction: column;
+    align-items: center;
   }
 
   .canvas-container {
