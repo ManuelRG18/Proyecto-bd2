@@ -122,14 +122,28 @@ export default function DeliveryApp() {
   // Filtrar zonas según el estado seleccionado
   const zonasFiltradas = estadoFiltro === "todos" ? zonas : zonas.filter((zona) => zona.estado === estadoFiltro)
 
-  const buscarRuta = async () => {
+  // Mejorar la función buscarRuta para manejar mejor las calles bloqueadas
+  const buscarRuta = async (callesBloquedas: string[] = []) => {
     if (origen && destino && origen !== destino) {
       setLoading(true)
       try {
-        const res = await fetch(
-          `http://localhost:5000/ruta?origen=${encodeURIComponent(origen)}&destino=${encodeURIComponent(destino)}`,
-        )
+        let url = `http://localhost:5000/ruta?origen=${encodeURIComponent(origen)}&destino=${encodeURIComponent(destino)}`
+
+        // Agregar calles bloqueadas si las hay
+        if (callesBloquedas.length > 0) {
+          const callesBloquedaParam = callesBloquedas.map((calle) => {
+            // Asegurar formato correcto: "desde-hasta"
+            return calle.includes("-") ? calle : calle
+          })
+          url += `&calles_bloqueadas=${encodeURIComponent(JSON.stringify(callesBloquedaParam))}`
+          console.log("🚧 Calles bloqueadas enviadas:", callesBloquedaParam)
+        }
+
+        console.log("🔍 Buscando ruta:", url)
+        const res = await fetch(url)
         const data = await res.json()
+
+        console.log("📍 Respuesta del servidor:", data)
         setRuta(data.ruta || [])
         setTiempoTotal(data.tiempo || 0)
       } catch (err) {
@@ -139,6 +153,12 @@ export default function DeliveryApp() {
       } finally {
         setLoading(false)
       }
+    }
+  }
+
+  const handleRecalcularRuta = (callesBloquedas: string[]) => {
+    if (origen && destino) {
+      buscarRuta(callesBloquedas)
     }
   }
 
@@ -210,7 +230,7 @@ export default function DeliveryApp() {
 
         <div className="button-group">
           <button
-            onClick={buscarRuta}
+            onClick={() => buscarRuta()}
             disabled={!origen || !destino || origen === destino || loading}
             className="btn-primary"
           >
@@ -251,6 +271,7 @@ export default function DeliveryApp() {
           loading={loading}
           tipoVista={tipoVista}
           estadoFiltro={estadoFiltro}
+          onRecalcularRuta={handleRecalcularRuta}
         />
       </div>
 

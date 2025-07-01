@@ -25,6 +25,7 @@ interface MapViewProps {
   loading: boolean
   tipoVista: "grafo" | "calles"
   estadoFiltro: string
+  onRecalcularRuta?: (callesBloquedas: string[]) => void
 }
 
 export default function MapView({
@@ -36,6 +37,7 @@ export default function MapView({
   loading,
   tipoVista,
   estadoFiltro,
+  onRecalcularRuta,
 }: MapViewProps) {
   // Componente wrapper que decide qué vista mostrar
   if (tipoVista === "grafo") {
@@ -60,6 +62,7 @@ export default function MapView({
         ruta={ruta}
         loading={loading}
         estadoFiltro={estadoFiltro}
+        onRecalcularRuta={onRecalcularRuta}
       />
     )
   }

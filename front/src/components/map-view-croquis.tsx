@@ -1,5 +1,3 @@
-"use client"
-
 import type React from "react"
 import { useEffect, useRef, useState } from "react"
 
@@ -25,6 +23,7 @@ interface MapViewCroquisProps {
   ruta: string[]
   loading: boolean
   estadoFiltro: string
+  onRecalcularRuta?: (callesBloquedas: string[]) => void
 }
 
 interface Nodo {
@@ -35,6 +34,12 @@ interface Nodo {
   estado: string
 }
 
+interface CalleBloqueda {
+  desde: string
+  hasta: string
+  id: string
+}
+
 export default function MapViewCroquis({
   zonas,
   conexiones,
@@ -43,12 +48,15 @@ export default function MapViewCroquis({
   ruta,
   loading,
   estadoFiltro,
+  onRecalcularRuta,
 }: MapViewCroquisProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 })
+  const [callesBloquedas, setCallesBloquedas] = useState<CalleBloqueda[]>([])
+  const [modoBloqueo, setModoBloqueo] = useState(false)
 
   // Posiciones alineadas con intersecciones de calles
   const POSICIONES_ZONAS: { [key: string]: { x: number; y: number } } = {
@@ -132,15 +140,180 @@ export default function MapViewCroquis({
     })
   }
 
+  const calcularDistanciaALinea = (px: number, py: number, x1: number, y1: number, x2: number, y2: number): number => {
+    const A = px - x1
+    const B = py - y1
+    const C = x2 - x1
+    const D = y2 - y1
+
+    const dot = A * C + B * D
+    const lenSq = C * C + D * D
+    let param = -1
+    if (lenSq !== 0) param = dot / lenSq
+
+    let xx, yy
+
+    if (param < 0) {
+      xx = x1
+      yy = y1
+    } else if (param > 1) {
+      xx = x2
+      yy = y2
+    } else {
+      xx = x1 + param * C
+      yy = y1 + param * D
+    }
+
+    const dx = px - xx
+    const dy = py - yy
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+
+  // Mejorar la función obtenerConexionEnPunto para detectar correctamente las conexiones específicas
+  const obtenerConexionEnPunto = (x: number, y: number): Conexion | null => {
+    const canvas = canvasRef.current
+    if (!canvas) return null
+
+    // Convertir coordenadas del canvas a coordenadas del mundo
+    const rect = canvas.getBoundingClientRect()
+    const canvasX = x - rect.left
+    const canvasY = y - rect.top
+
+    // Aplicar transformaciones inversas
+    const worldX = (canvasX - pan.x) / zoom
+    const worldY = (canvasY - pan.y) / zoom
+
+    const tolerancia = 20 / zoom
+
+    // Buscar la conexión más cercana al punto de clic
+    let conexionMasCercana: Conexion | null = null
+    let distanciaMinima = Number.POSITIVE_INFINITY
+
+    // Solo buscar en conexiones que realmente existen entre zonas visibles
+    const zonasVisibles = new Set(zonas.map((z) => z.nombre))
+
+    for (const conexion of conexiones) {
+      // Verificar que ambas zonas estén visibles
+      if (!zonasVisibles.has(conexion.desde) || !zonasVisibles.has(conexion.hasta)) {
+        continue
+      }
+
+      const posDesde = POSICIONES_ZONAS[conexion.desde]
+      const posHasta = POSICIONES_ZONAS[conexion.hasta]
+
+      if (posDesde && posHasta) {
+        const distancia = calcularDistanciaALinea(worldX, worldY, posDesde.x, posDesde.y, posHasta.x, posHasta.y)
+
+        if (distancia <= tolerancia && distancia < distanciaMinima) {
+          distanciaMinima = distancia
+          conexionMasCercana = conexion
+        }
+      }
+    }
+
+    // Debug: mostrar qué conexión se detectó
+    if (conexionMasCercana) {
+      console.log(`🎯 Conexión detectada: ${conexionMasCercana.desde} ↔ ${conexionMasCercana.hasta}`)
+    }
+
+    return conexionMasCercana
+  }
+
+  const estaCalleBloqueda = (desde: string, hasta: string): boolean => {
+    return callesBloquedas.some(
+      (calle) => (calle.desde === desde && calle.hasta === hasta) || (calle.desde === hasta && calle.hasta === desde),
+    )
+  }
+
+  const toggleBloqueCalle = (conexion: Conexion) => {
+    const id = `${conexion.desde}-${conexion.hasta}`
+    const yaBloqueda = estaCalleBloqueda(conexion.desde, conexion.hasta)
+
+    if (yaBloqueda) {
+      // Desbloquear
+      setCallesBloquedas((prev) =>
+        prev.filter(
+          (calle) =>
+            !(
+              (calle.desde === conexion.desde && calle.hasta === conexion.hasta) ||
+              (calle.desde === conexion.hasta && calle.hasta === conexion.desde)
+            ),
+        ),
+      )
+    } else {
+      // Bloquear
+      setCallesBloquedas((prev) => [
+        ...prev,
+        {
+          desde: conexion.desde,
+          hasta: conexion.hasta,
+          id,
+        },
+      ])
+    }
+  }
+
+  const limpiarBloqueos = () => {
+    setCallesBloquedas([])
+    if (onRecalcularRuta) {
+      onRecalcularRuta([])
+    }
+  }
+
+  const handleCanvasClick = (e: React.MouseEvent) => {
+    if (!modoBloqueo) return
+
+    console.log("🖱️ Click detectado en modo bloqueo")
+    const conexion = obtenerConexionEnPunto(e.clientX, e.clientY)
+
+    if (conexion) {
+      console.log(`🚧 Intentando bloquear: ${conexion.desde} ↔ ${conexion.hasta}`)
+      toggleBloqueCalle(conexion)
+
+      // Recalcular ruta si hay origen y destino
+      if (origen && destino && onRecalcularRuta) {
+        // Crear nueva lista de calles bloqueadas
+        const nuevasCallesBloquedas = [...callesBloquedas]
+        const yaBloqueda = estaCalleBloqueda(conexion.desde, conexion.hasta)
+
+        if (!yaBloqueda) {
+          nuevasCallesBloquedas.push({
+            desde: conexion.desde,
+            hasta: conexion.hasta,
+            id: `${conexion.desde}-${conexion.hasta}`,
+          })
+        } else {
+          // Remover el bloqueo
+          const index = nuevasCallesBloquedas.findIndex(
+            (calle) =>
+              (calle.desde === conexion.desde && calle.hasta === conexion.hasta) ||
+              (calle.desde === conexion.hasta && calle.hasta === conexion.desde),
+          )
+          if (index > -1) nuevasCallesBloquedas.splice(index, 1)
+        }
+
+        const callesBloquedaIds = nuevasCallesBloquedas.map((c) => c.id)
+        console.log(`📤 Enviando calles bloqueadas: ${JSON.stringify(callesBloquedaIds)}`)
+        onRecalcularRuta(callesBloquedaIds)
+      }
+    } else {
+      console.log("❌ No se detectó ninguna conexión en el punto clickeado")
+    }
+  }
+
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (modoBloqueo) {
+      handleCanvasClick(e)
+      return
+    }
     setIsDragging(true)
     setLastMousePos({ x: e.clientX, y: e.clientY })
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging) {
+    if (isDragging && !modoBloqueo) {
       const deltaX = e.clientX - lastMousePos.x
-      const deltaY = e.clientY - lastMousePos.y
+      const deltaY = e.clientY - lastMousePos.y // Cambiar e.clientX por e.clientY
       setPan((prev) => ({ x: prev.x + deltaX, y: prev.y + deltaY }))
       setLastMousePos({ x: e.clientX, y: e.clientY })
     }
@@ -208,6 +381,55 @@ export default function MapViewCroquis({
     ctx.fillText("REGIÓN CENTRO-OCCIDENTE", 500, 460)
     ctx.font = "10px Arial"
     ctx.fillText("(Lara)", 500, 472)
+  }
+
+  // Mejorar la función para mostrar visualmente las calles bloqueadas en el lugar correcto
+  const dibujarCallesBloquedas = (ctx: CanvasRenderingContext2D) => {
+    callesBloquedas.forEach((calleBloqueda) => {
+      const posDesde = POSICIONES_ZONAS[calleBloqueda.desde]
+      const posHasta = POSICIONES_ZONAS[calleBloqueda.hasta]
+
+      if (posDesde && posHasta) {
+        // Dibujar línea roja gruesa para calle bloqueada
+        ctx.beginPath()
+        ctx.moveTo(posDesde.x, posDesde.y)
+        ctx.lineTo(posHasta.x, posHasta.y)
+        ctx.strokeStyle = "#dc2626"
+        ctx.lineWidth = 8
+        ctx.setLineDash([8, 8])
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        // Dibujar X en el medio de la conexión bloqueada
+        const midX = (posDesde.x + posHasta.x) / 2
+        const midY = (posDesde.y + posHasta.y) / 2
+
+        // Fondo blanco para la X
+        ctx.fillStyle = "#ffffff"
+        ctx.beginPath()
+        ctx.arc(midX, midY, 12, 0, 2 * Math.PI)
+        ctx.fill()
+
+        // Dibujar X roja
+        ctx.strokeStyle = "#dc2626"
+        ctx.lineWidth = 3
+        ctx.beginPath()
+        ctx.moveTo(midX - 8, midY - 8)
+        ctx.lineTo(midX + 8, midY + 8)
+        ctx.moveTo(midX + 8, midY - 8)
+        ctx.lineTo(midX - 8, midY + 8)
+        ctx.stroke()
+
+        // Agregar texto indicativo
+        ctx.fillStyle = "#dc2626"
+        ctx.font = "bold 8px Arial"
+        ctx.textAlign = "center"
+        ctx.fillText("BLOQUEADA", midX, midY + 20)
+        ctx.fillText(`${calleBloqueda.desde}`, midX, midY + 30)
+        ctx.fillText(`↕`, midX, midY + 38)
+        ctx.fillText(`${calleBloqueda.hasta}`, midX, midY + 46)
+      }
+    })
   }
 
   const dibujarVistaCroquis = () => {
@@ -291,6 +513,115 @@ export default function MapViewCroquis({
       dibujarSeparadoresEstados(ctx)
     }
 
+    // En la vista de calles, solo mostramos las rutas que siguen las calles
+    // Las conexiones directas del grafo no se dibujan aquí
+
+    // Dibujar calles bloqueadas ANTES de dibujar la ruta
+    dibujarCallesBloquedas(ctx)
+
+    ctx.setLineDash([])
+
+    // Dibujar ruta siguiendo las calles cuando hay ruta activa
+    if (ruta.length > 1) {
+      ctx.strokeStyle = "#16a34a"
+      ctx.lineWidth = 6
+      ctx.setLineDash([8, 4])
+
+      for (let i = 0; i < ruta.length - 1; i++) {
+        const actual = POSICIONES_ZONAS[ruta[i]]
+        const siguiente = POSICIONES_ZONAS[ruta[i + 1]]
+
+        if (actual && siguiente) {
+          // Dibujar ruta siguiendo las calles (rectangular, no diagonal)
+          ctx.beginPath()
+
+          // Si las posiciones son diferentes, dibujar en forma de L
+          if (actual.x !== siguiente.x && actual.y !== siguiente.y) {
+            // Movimiento horizontal primero
+            ctx.moveTo(actual.x, actual.y)
+            ctx.lineTo(siguiente.x, actual.y)
+            ctx.stroke()
+
+            // Flecha horizontal
+            const midX = (actual.x + siguiente.x) / 2
+            const arrowSize = 10
+            ctx.save()
+            ctx.translate(midX, actual.y)
+            ctx.rotate(actual.x < siguiente.x ? 0 : Math.PI)
+            ctx.fillStyle = "#16a34a"
+            ctx.beginPath()
+            ctx.moveTo(arrowSize, 0)
+            ctx.lineTo(-arrowSize / 2, -arrowSize / 2)
+            ctx.lineTo(-arrowSize / 2, arrowSize / 2)
+            ctx.closePath()
+            ctx.fill()
+            ctx.restore()
+
+            // Luego movimiento vertical
+            ctx.beginPath()
+            ctx.moveTo(siguiente.x, actual.y)
+            ctx.lineTo(siguiente.x, siguiente.y)
+            ctx.stroke()
+
+            // Flecha vertical
+            const midY = (actual.y + siguiente.y) / 2
+            ctx.save()
+            ctx.translate(siguiente.x, midY)
+            ctx.rotate(actual.y < siguiente.y ? Math.PI / 2 : -Math.PI / 2)
+            ctx.fillStyle = "#16a34a"
+            ctx.beginPath()
+            ctx.moveTo(arrowSize, 0)
+            ctx.lineTo(-arrowSize / 2, -arrowSize / 2)
+            ctx.lineTo(-arrowSize / 2, arrowSize / 2)
+            ctx.closePath()
+            ctx.fill()
+            ctx.restore()
+          } else if (actual.x !== siguiente.x) {
+            // Solo movimiento horizontal
+            ctx.moveTo(actual.x, actual.y)
+            ctx.lineTo(siguiente.x, actual.y)
+            ctx.stroke()
+
+            // Flecha horizontal
+            const midX = (actual.x + siguiente.x) / 2
+            const arrowSize = 10
+            ctx.save()
+            ctx.translate(midX, actual.y)
+            ctx.rotate(actual.x < siguiente.x ? 0 : Math.PI)
+            ctx.fillStyle = "#16a34a"
+            ctx.beginPath()
+            ctx.moveTo(arrowSize, 0)
+            ctx.lineTo(-arrowSize / 2, -arrowSize / 2)
+            ctx.lineTo(-arrowSize / 2, arrowSize / 2)
+            ctx.closePath()
+            ctx.fill()
+            ctx.restore()
+          } else if (actual.y !== siguiente.y) {
+            // Solo movimiento vertical
+            ctx.moveTo(actual.x, actual.y)
+            ctx.lineTo(actual.x, siguiente.y)
+            ctx.stroke()
+
+            // Flecha vertical
+            const midY = (actual.y + siguiente.y) / 2
+            const arrowSize = 10
+            ctx.save()
+            ctx.translate(actual.x, midY)
+            ctx.rotate(actual.y < siguiente.y ? Math.PI / 2 : -Math.PI / 2)
+            ctx.fillStyle = "#16a34a"
+            ctx.beginPath()
+            ctx.moveTo(arrowSize, 0)
+            ctx.lineTo(-arrowSize / 2, -arrowSize / 2)
+            ctx.lineTo(-arrowSize / 2, arrowSize / 2)
+            ctx.closePath()
+            ctx.fill()
+            ctx.restore()
+          }
+        }
+      }
+      ctx.setLineDash([])
+    }
+
     // Dibujar edificios/zonas
     const nodos = generarNodosCroquis()
     nodos.forEach((zona) => {
@@ -321,91 +652,9 @@ export default function MapViewCroquis({
       ctx.fillStyle = "#1e293b"
       ctx.font = "bold 9px Arial"
       ctx.textAlign = "center"
-      // REMOVER el truncamiento - mostrar nombre completo
       const texto = zona.id
       ctx.fillText(texto, zona.x, zona.y - size / 2 - 8)
     })
-
-    // Dibujar ruta siguiendo las calles cuando hay ruta activa
-    if (ruta.length > 1) {
-      ctx.strokeStyle = "#16a34a"
-      ctx.lineWidth = 6
-      ctx.setLineDash([8, 4])
-
-      for (let i = 0; i < ruta.length - 1; i++) {
-        const actual = POSICIONES_ZONAS[ruta[i]]
-        const siguiente = POSICIONES_ZONAS[ruta[i + 1]]
-
-        if (actual && siguiente) {
-          ctx.beginPath()
-
-          // Movimiento horizontal primero
-          if (actual.x !== siguiente.x) {
-            ctx.moveTo(actual.x, actual.y)
-            ctx.lineTo(siguiente.x, actual.y)
-            ctx.stroke()
-
-            // Flecha horizontal
-            const midX = (actual.x + siguiente.x) / 2
-            const arrowSize = 10
-            ctx.save()
-            ctx.translate(midX, actual.y)
-            ctx.rotate(actual.x < siguiente.x ? 0 : Math.PI)
-            ctx.fillStyle = "#16a34a"
-            ctx.beginPath()
-            ctx.moveTo(arrowSize, 0)
-            ctx.lineTo(-arrowSize / 2, -arrowSize / 2)
-            ctx.lineTo(-arrowSize / 2, arrowSize / 2)
-            ctx.closePath()
-            ctx.fill()
-            ctx.restore()
-
-            // Luego movimiento vertical si es necesario
-            if (actual.y !== siguiente.y) {
-              ctx.beginPath()
-              ctx.moveTo(siguiente.x, actual.y)
-              ctx.lineTo(siguiente.x, siguiente.y)
-              ctx.stroke()
-
-              // Flecha vertical
-              const midY = (actual.y + siguiente.y) / 2
-              ctx.save()
-              ctx.translate(siguiente.x, midY)
-              ctx.rotate(actual.y < siguiente.y ? Math.PI / 2 : -Math.PI / 2)
-              ctx.fillStyle = "#16a34a"
-              ctx.beginPath()
-              ctx.moveTo(arrowSize, 0)
-              ctx.lineTo(-arrowSize / 2, -arrowSize / 2)
-              ctx.lineTo(-arrowSize / 2, arrowSize / 2)
-              ctx.closePath()
-              ctx.fill()
-              ctx.restore()
-            }
-          } else if (actual.y !== siguiente.y) {
-            // Solo movimiento vertical
-            ctx.moveTo(actual.x, actual.y)
-            ctx.lineTo(actual.x, siguiente.y)
-            ctx.stroke()
-
-            // Flecha vertical
-            const midY = (actual.y + siguiente.y) / 2
-            const arrowSize = 10
-            ctx.save()
-            ctx.translate(actual.x, midY)
-            ctx.rotate(actual.y < siguiente.y ? Math.PI / 2 : -Math.PI / 2)
-            ctx.fillStyle = "#16a34a"
-            ctx.beginPath()
-            ctx.moveTo(arrowSize, 0)
-            ctx.lineTo(-arrowSize / 2, -arrowSize / 2)
-            ctx.lineTo(-arrowSize / 2, arrowSize / 2)
-            ctx.closePath()
-            ctx.fill()
-            ctx.restore()
-          }
-        }
-      }
-      ctx.setLineDash([])
-    }
 
     ctx.restore()
 
@@ -421,7 +670,7 @@ export default function MapViewCroquis({
 
   useEffect(() => {
     dibujarVistaCroquis()
-  }, [zonas, conexiones, origen, destino, ruta, loading, estadoFiltro, zoom, pan])
+  }, [zonas, conexiones, origen, destino, ruta, loading, estadoFiltro, zoom, pan, callesBloquedas])
 
   return (
     <div className="map-view">
@@ -447,6 +696,10 @@ export default function MapViewCroquis({
             <div className="legend-color normal"></div>
             <span>Otras Zonas</span>
           </div>
+          <div className="legend-item">
+            <div style={{ width: 12, height: 12, background: "#dc2626", borderRadius: "50%" }}></div>
+            <span>Calles Bloqueadas</span>
+          </div>
         </div>
       </div>
 
@@ -459,6 +712,15 @@ export default function MapViewCroquis({
         </button>
         <button onClick={resetView} className="control-btn secondary">
           ⟳ Reset Vista
+        </button>
+        <button
+          onClick={() => setModoBloqueo(!modoBloqueo)}
+          className={`control-btn ${modoBloqueo ? "primary" : "secondary"}`}
+        >
+          {modoBloqueo ? "🚧 Modo Bloqueo ON" : "🚧 Activar Bloqueo"}
+        </button>
+        <button onClick={limpiarBloqueos} className="control-btn secondary" disabled={callesBloquedas.length === 0}>
+          🗑 Limpiar Bloqueos ({callesBloquedas.length})
         </button>
         <span className="zoom-info">⛶ Zoom: {(zoom * 100).toFixed(0)}%</span>
       </div>
@@ -474,14 +736,21 @@ export default function MapViewCroquis({
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
           onWheel={handleWheel}
+          style={{ cursor: modoBloqueo ? "crosshair" : "move" }}
         />
       </div>
 
       <div className="map-info">
-        <p>💡 Vista de croquis con calles. Las líneas verdes siguen las calles de la ruta óptima.</p>
         <p>
-          🔗 Zonas mostradas: {zonas.length} | Conexiones: {conexiones.length} | Estado:{" "}
-          {estadoFiltro === "todos" ? "Todos" : estadoFiltro} | Arrastra para mover, rueda para zoom
+          💡 Vista de croquis con calles.{" "}
+          {modoBloqueo
+            ? "Haz clic en las calles para bloquearlas/desbloquearlas."
+            : "Las líneas verdes siguen las calles de la ruta óptima."}
+        </p>
+        <p>
+          🔗 Zonas mostradas: {zonas.length} | Conexiones: {conexiones.length} | Calles bloqueadas:{" "}
+          {callesBloquedas.length} | Estado: {estadoFiltro === "todos" ? "Todos" : estadoFiltro} |{" "}
+          {modoBloqueo ? "Modo bloqueo activo" : "Arrastra para mover, rueda para zoom"}
         </p>
       </div>
     </div>

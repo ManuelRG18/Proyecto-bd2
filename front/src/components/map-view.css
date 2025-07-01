@@ -95,6 +95,11 @@
   background: #4b5563;
 }
 
+.control-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
 .zoom-info {
   padding: 0.5rem 1rem;
   background: #e5e7eb;
@@ -116,7 +121,6 @@
   background: white;
   max-width: 100%;
   height: auto;
-  cursor: move;
 }
 
 .map-info {
