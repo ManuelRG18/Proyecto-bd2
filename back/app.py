@@ -1,9 +1,10 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from neo4j import GraphDatabase
+import json
 
 app = Flask(__name__)
-CORS(app)  # Permite conexiones desde React (localhost:3000, etc.)
+CORS(app)
 
 # Conexión con Neo4j
 URI = "neo4j://127.0.0.1:7687"
@@ -52,6 +53,17 @@ def obtener_zonas_completas():
 def calcular_ruta_dijkstra():
     origen = request.args.get("origen")
     destino = request.args.get("destino")
+    calles_bloqueadas_param = request.args.get("calles_bloqueadas", "[]")
+    
+    print(f"🔍 Calculando ruta de {origen} a {destino}")
+    print(f"🚧 Parámetro calles bloqueadas: {calles_bloqueadas_param}")
+    
+    try:
+        calles_bloqueadas = json.loads(calles_bloqueadas_param)
+        print(f"🚧 Calles bloqueadas procesadas: {calles_bloqueadas}")
+    except Exception as e:
+        print(f"❌ Error procesando calles bloqueadas: {e}")
+        calles_bloqueadas = []
     
     # Obtener todas las conexiones para Dijkstra
     query_conexiones = '''
@@ -60,15 +72,40 @@ def calcular_ruta_dijkstra():
            r.tiempo_minutos AS tiempo_minutos
     '''
     conexiones = run_query(query_conexiones)
+    print(f"📊 Total conexiones obtenidas: {len(conexiones)}")
     
-    # Implementar Dijkstra en Python
-    def dijkstra(conexiones, origen, destino):
+    # Implementar Dijkstra en Python con calles bloqueadas
+    def dijkstra_con_bloqueos(conexiones, origen, destino, calles_bloqueadas):
+        print(f"🚀 Iniciando Dijkstra con {len(calles_bloqueadas)} bloqueos")
+        
         # Crear grafo
         grafo = {}
         nodos = set()
         
+        # Convertir calles bloqueadas a set para búsqueda rápida
+        bloqueos = set()
+        for calle_id in calles_bloqueadas:
+            if '-' in calle_id:
+                partes = calle_id.split('-', 1)
+                if len(partes) == 2:
+                    desde, hasta = partes[0], partes[1]
+                    bloqueos.add((desde, hasta))
+                    bloqueos.add((hasta, desde))
+                    print(f"🚧 Bloqueando: {desde} ↔ {hasta}")
+        
+        conexiones_activas = 0
+        conexiones_bloqueadas = 0
+        
         for conn in conexiones:
             desde, hasta, tiempo = conn['desde'], conn['hasta'], conn['tiempo_minutos']
+            
+            # Verificar si esta conexión está bloqueada
+            if (desde, hasta) in bloqueos or (hasta, desde) in bloqueos:
+                conexiones_bloqueadas += 1
+                print(f"🚫 Conexión bloqueada: {desde} → {hasta}")
+                continue  # Saltar conexiones bloqueadas
+            
+            conexiones_activas += 1
             nodos.add(desde)
             nodos.add(hasta)
             
@@ -81,7 +118,10 @@ def calcular_ruta_dijkstra():
             grafo[desde][hasta] = tiempo
             grafo[hasta][desde] = tiempo
         
+        print(f"📈 Conexiones activas: {conexiones_activas}, bloqueadas: {conexiones_bloqueadas}")
+        
         if origen not in nodos or destino not in nodos:
+            print(f"❌ Nodos no encontrados: origen={origen in nodos}, destino={destino in nodos}")
             return [], 0
         
         # Algoritmo de Dijkstra
@@ -98,6 +138,7 @@ def calcular_ruta_dijkstra():
             visitados.add(nodo_actual)
             
             if nodo_actual == destino:
+                print(f"🎯 Destino alcanzado con distancia: {distancias[destino]}")
                 break
                 
             # Actualizar distancias de vecinos
@@ -116,26 +157,43 @@ def calcular_ruta_dijkstra():
             ruta.insert(0, actual)
             actual = previos[actual]
         
-        return ruta if ruta[0] == origen else [], distancias[destino]
+        ruta_valida = ruta if len(ruta) > 0 and ruta[0] == origen else []
+        tiempo_total = distancias[destino] if distancias[destino] != float('inf') else 0
+        
+        print(f"🛣️ Ruta encontrada: {' → '.join(ruta_valida)}")
+        print(f"⏱️ Tiempo total: {tiempo_total} minutos")
+        
+        return ruta_valida, tiempo_total
     
-    ruta, tiempo = dijkstra(conexiones, origen, destino)
+    ruta, tiempo = dijkstra_con_bloqueos(conexiones, origen, destino, calles_bloqueadas)
     
     return jsonify({
         "ruta": ruta,
         "tiempo": tiempo,
-        "algoritmo": "dijkstra"
+        "algoritmo": "dijkstra_con_bloqueos",
+        "calles_bloqueadas": len(calles_bloqueadas),
+        "debug": {
+            "origen": origen,
+            "destino": destino,
+            "bloqueos_aplicados": calles_bloqueadas
+        }
     })
 
-# También actualiza el endpoint original para usar Dijkstra por defecto:
 @app.route("/ruta")
 def calcular_ruta():
     origen = request.args.get("origen")
     destino = request.args.get("destino")
+    calles_bloqueadas = request.args.get("calles_bloqueadas", "[]")
     
-    # Usar el nuevo endpoint de Dijkstra
+    # Usar el nuevo endpoint de Dijkstra con bloqueos
     import requests
-    response = requests.get(f"http://localhost:5000/ruta-dijkstra?origen={origen}&destino={destino}")
-    return response.json()
+    try:
+        response = requests.get(f"http://localhost:5000/ruta-dijkstra?origen={origen}&destino={destino}&calles_bloqueadas={calles_bloqueadas}")
+        return response.json()
+    except Exception as e:
+        print(f"❌ Error en cálculo de ruta: {e}")
+        return jsonify({"ruta": [], "tiempo": 0, "error": str(e)})
 
 if __name__ == "__main__":
+    print("Iniciando servidor...")
     app.run(debug=True)
