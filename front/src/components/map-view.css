@@ -1,0 +1,161 @@
+.map-view {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.map-header {
+  background: linear-gradient(135deg, #1f2937, #374151);
+  color: white;
+  padding: 1rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.map-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.map-legend {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid white;
+}
+
+.legend-color.origen {
+  background: #3b82f6;
+}
+
+.legend-color.destino {
+  background: #ef4444;
+}
+
+.legend-color.ruta {
+  background: #22c55e;
+}
+
+.legend-color.normal {
+  background: #6b7280;
+}
+
+.map-controls {
+  background: #f3f4f6;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.control-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.control-btn.primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.control-btn.primary:hover {
+  background: #2563eb;
+}
+
+.control-btn.secondary {
+  background: #6b7280;
+  color: white;
+}
+
+.control-btn.secondary:hover {
+  background: #4b5563;
+}
+
+.control-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.zoom-info {
+  padding: 0.5rem 1rem;
+  background: #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #374151;
+}
+
+.canvas-container {
+  display: flex;
+  justify-content: center;
+  padding: 1rem;
+  background: #f9fafb;
+}
+
+.map-canvas {
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  max-width: 100%;
+  height: auto;
+}
+
+.map-info {
+  background: #f3f4f6;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.map-info p {
+  margin: 0.25rem 0;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 768px) {
+  .map-header {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .map-legend {
+    justify-content: center;
+  }
+
+  .map-controls {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .canvas-container {
+    padding: 0.5rem;
+  }
+
+  .map-canvas {
+    width: 100%;
+    max-width: 100%;
+  }
+}
